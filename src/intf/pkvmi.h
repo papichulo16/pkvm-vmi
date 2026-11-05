@@ -17,6 +17,8 @@ extern void* kimage_voff;
 #define HYPM_READ_PA _IOWR('h', 4, char[IOCTL_MSG_LEN])
 #define HYPM_REG_DUMP_EL1 _IOR('h', 5, char[IOCTL_MSG_LEN])
 #define HYPM_READ_PA_EL1 _IOWR('h', 6, char[IOCTL_MSG_LEN])
+#define HYPM_READ_VA _IOWR('h', 7, char[IOCTL_MSG_LEN])
+#define HYPM_READ_VA_EL1 _IOWR('h', 8, char[IOCTL_MSG_LEN])
 
 long pkvmi_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 unsigned long pkvm_driver_init(void);

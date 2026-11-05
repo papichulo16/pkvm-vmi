@@ -75,14 +75,6 @@ static int pkvmi_reg_dump_hvc(void) {
   return pkvm_el2_mod_call(pkvmi_hvc, PKVMI_REG_DUMP);
 }
 
-static int pkvmi_read_pa_hvc(unsigned long pa) {
-
-  if (!shared_page)
-    return -ENODEV;
-
-  return pkvm_el2_mod_call(pkvmi_hvc, PKVMI_READ_PA, pa);
-}
-
 static int pkvmi_reg_dump_el1_hvc(void) {
 
   if (!shared_page)
@@ -91,24 +83,44 @@ static int pkvmi_reg_dump_el1_hvc(void) {
   return pkvm_el2_mod_call(pkvmi_hvc, PKVMI_REG_DUMP_EL1);
 }
 
-static int pkvmi_read_pa_el1_hvc(unsigned long va) {
-
-  if (!shared_page)
-    return -ENODEV;
-
-  return pkvm_el2_mod_call(pkvmi_hvc, PKVMI_READ_PA_EL1, va);
-}
-
 static long pkvmi_page_to_user(unsigned long arg) {
 
   return copy_to_user((void __user *)arg, page_address(shared_page), IOCTL_MSG_LEN) ? -EFAULT : 0;
+}
+
+static long pkvmi_read_ioctl(unsigned long arg, unsigned long hvc_id) {
+
+  long ret = -EFAULT;
+  unsigned long addr;
+  long r;
+
+  if (copy_from_user(&addr, (void __user *)arg, sizeof(addr)))
+    goto end;
+
+  if (hvc_id == PKVMI_READ_PA_EL1 && !pfn_valid(PHYS_PFN(addr)))
+    goto end;
+
+  ret = -ENODEV;
+
+  if (!shared_page)
+    goto end;
+
+  r = (int) pkvm_el2_mod_call(pkvmi_hvc, hvc_id, addr);
+  ret = r < 0 ? r : -EIO;
+
+  if (r)
+    goto end;
+
+  ret = pkvmi_page_to_user(arg);
+
+end:
+  return ret;
 }
 
 long pkvmi_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
 	long ret = -ENOTTY;
   unsigned long r;
-  unsigned long pa;
 
   switch (cmd) {
 
@@ -136,15 +148,12 @@ long pkvmi_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
     case HYPM_READ_PA:
 
-      if (copy_from_user(&pa, (void __user *)arg, sizeof(pa))) {
-        ret = -EFAULT;
-        break;
-      }
+      ret = pkvmi_read_ioctl(arg, PKVMI_READ_PA);
+      break;
 
-      r = pkvmi_read_pa_hvc(pa);
+    case HYPM_READ_VA:
 
-      ret = r ? -EIO : pkvmi_page_to_user(arg);
-
+      ret = pkvmi_read_ioctl(arg, PKVMI_READ_VA);
       break;
 
     case HYPM_REG_DUMP_EL1:
@@ -157,15 +166,12 @@ long pkvmi_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
     case HYPM_READ_PA_EL1:
 
-      if (copy_from_user(&pa, (void __user *)arg, sizeof(pa))) {
-        ret = -EFAULT;
-        break;
-      }
+      ret = pkvmi_read_ioctl(arg, PKVMI_READ_PA_EL1);
+      break;
 
-      r = pkvmi_read_pa_el1_hvc(pa);
+    case HYPM_READ_VA_EL1:
 
-      ret = r ? -EIO : pkvmi_page_to_user(arg);
-
+      ret = pkvmi_read_ioctl(arg, PKVMI_READ_VA_EL1);
       break;
   }
 

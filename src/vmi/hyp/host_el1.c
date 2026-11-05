@@ -15,6 +15,7 @@
 #define L1_NR_ENTRIES    512
 
 #define DESC_VALID       (1UL << 0)   
+#define DESC_TABLE       (1UL << 1)
 #define DESC_ATTR_NORMAL (MT_NORMAL << 2)
 #define DESC_SH_INNER    (3UL << 8)
 #define DESC_AF          (1UL << 10)
@@ -73,6 +74,40 @@ void host_el1_tmp_unmap(void) {
   el2_tlb_flush();
 }
 
+int el2_pt_va_to_pa(phys_addr_t root_pa, int levels, unsigned long va, phys_addr_t* pa) {
+
+  int shift = PAGE_SHIFT + 9 * (levels - 1);
+  phys_addr_t table_pa = root_pa & ADDR_MASK_47_12;
+  unsigned long* table;
+  unsigned long desc = 0;
+  int ret = -EFAULT;
+
+  for (; levels > 0; levels--, shift -= 9) {
+
+    table = el2_tmp_map_phys(table_pa);
+
+    if (!table)
+      goto end;
+
+    desc = table[(va >> shift) & 0x1ff];
+    host_el1_tmp_unmap();
+
+    if (!(desc & DESC_VALID) || !(desc & DESC_TABLE) || levels == 1)
+      break;
+
+    table_pa = desc & ADDR_MASK_47_12;
+  }
+
+  if (!(desc & DESC_VALID))
+    goto end;
+
+  *pa = (desc & ADDR_MASK_47_12 & ~((1UL << shift) - 1)) | (va & ((1UL << shift) - 1));
+  ret = 0;
+
+end:
+  return ret;
+}
+
 // temporarily maps the ttbr1_el1 in the el2 memory space,
 // reads the top kbase_pt entry
 // maps it into ttbr0_el2 so we can access kernel memory in the pKVM module 
@@ -125,6 +160,30 @@ int host_el1_read_pa(void* dst_page, void* pa) {
 
   host_el1_tmp_unmap();
   return 0;
+}
+
+int host_el1_read_va(void* dst_page, unsigned long va) {
+
+  unsigned long tcr = read_sysreg(tcr_el1);
+  bool hi = (va >> 55) & 1;
+  unsigned long txsz = hi ? (tcr >> 16) & 0x3f : tcr & 0x3f;
+  int levels = (64 - txsz - PAGE_SHIFT + 8) / 9;
+  phys_addr_t root_pa = hi ? read_sysreg(ttbr1_el1) : read_sysreg(ttbr0_el1);
+  phys_addr_t pa;
+  int ret = -EFAULT;
+
+  if ((hi ? ~va : va) >> (64 - txsz))
+    goto end;
+
+  ret = el2_pt_va_to_pa(root_pa, levels, va & PAGE_MASK, &pa);
+
+  if (ret)
+    goto end;
+
+  ret = host_el1_read_pa(dst_page, (void *) pa);
+
+end:
+  return ret;
 }
 
 void host_el1_reg_dump(void* dst_page) {

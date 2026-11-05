@@ -14,6 +14,9 @@
 
 #define LINE_LEN 256
 
+#define EFAULT 14
+#define ENODEV 19
+
 static long sys_call(long nr, long a0, long a1, long a2) {
 
 	register long x8 __asm__("x8") = nr;
@@ -202,67 +205,49 @@ static void cmd_regdump_el1(int fd) {
 	print("par_el1   "); print_u64_hex(r->par_el1);   print("\n");
 }
 
-static void cmd_readpa_el1(int fd, const char *arg) {
+static void print_read_err(const char *name, long err) {
 
-	char page[IOCTL_MSG_LEN];
-	int ok;
-	unsigned long va;
-	int row;
+	print(name);
 
-	va = parse_hex(arg, &ok);
-
-	if (!ok) {
-		print("usage: readpa_el1 <hex-va>\n");
-		return;
-	}
-
-	*(unsigned long *)page = va;
-
-	if (sys_call(SYS_IOCTL, fd, HYPM_READ_PA_EL1, (long)page) != 0) {
-		print("readpa_el1 failed\n");
-		return;
-	}
-
-	for (row = 0; row < (int) (IOCTL_MSG_LEN / 0x10); row++) {
-		int col;
-
-		print_u64_hex(va + row * 16);
-		print("  ");
-
-		for (col = 0; col < 2; col++) {
-			print_u64_hex(((unsigned long *) page)[row * 2 + col]);
-			print(" ");
-		}
-
+	if (err == -EFAULT)
+		print(": address not mapped\n");
+	else if (err == -ENODEV)
+		print(": not initialized\n");
+	else {
+		print(": failed, errno ");
+		print_u64_hex(-err);
 		print("\n");
 	}
 }
 
-static void cmd_readpa(int fd, const char *arg) {
+static void cmd_read(int fd, const char *arg, unsigned long ioctl_nr, const char *name) {
 
 	char page[IOCTL_MSG_LEN];
+	unsigned long addr;
+	long err;
 	int ok;
-	unsigned long pa;
 	int row;
+	int col;
 
-	pa = parse_hex(arg, &ok);
+	addr = parse_hex(arg, &ok) & ~(PAGE_SIZE - 1);
 
 	if (!ok) {
-		print("usage: readpa <hex-pa>\n");
+		print("usage: ");
+		print(name);
+		print(" <hex-addr>\n");
 		return;
 	}
 
-	*(unsigned long *)page = pa;
+	*(unsigned long *)page = addr;
+	err = sys_call(SYS_IOCTL, fd, ioctl_nr, (long)page);
 
-	if (sys_call(SYS_IOCTL, fd, HYPM_READ_PA, (long)page) != 0) {
-		print("readpa failed\n");
+	if (err) {
+		print_read_err(name, err);
 		return;
 	}
 
 	for (row = 0; row < (int) (IOCTL_MSG_LEN / 0x10); row++) {
-		int col;
-
-		print_u64_hex(pa + row * 16);
+		print_u64_hex(addr + row * 16);
 		print("  ");
 
 		for (col = 0; col < 2; col++) {
@@ -278,9 +263,11 @@ static void cmd_help(void) {
 
 	print("commands:\n");
 	print("  regdump             dump EL2 system registers\n");
-	print("  readpa <hex-pa>     read a physical page\n");
+	print("  readpa <hex-pa>     read a physical page through the EL2 linear map\n");
+	print("  readva <hex-va>     read an EL2 virtual page\n");
 	print("  regdump_el1         dump EL1 system registers\n");
-	print("  readpa_el1 <hex-va> read a kernel virtual page\n");
+	print("  readpa_el1 <hex-pa> read a physical page through a temp EL2 map\n");
+	print("  readva_el1 <hex-va> read an EL1 virtual page\n");
 	print("  help                show this\n");
 	print("  exit                quit\n");
 }
@@ -319,11 +306,15 @@ void __attribute__((noreturn)) _start(void) {
 		if (tok_eq(line, "regdump_el1", &rest))
 			cmd_regdump_el1((int)fd);
 		else if (tok_eq(line, "readpa_el1", &rest))
-			cmd_readpa_el1((int)fd, rest);
+			cmd_read((int)fd, rest, HYPM_READ_PA_EL1, "readpa_el1");
+		else if (tok_eq(line, "readva_el1", &rest))
+			cmd_read((int)fd, rest, HYPM_READ_VA_EL1, "readva_el1");
 		else if (tok_eq(line, "regdump", &rest))
 			cmd_regdump((int)fd);
 		else if (tok_eq(line, "readpa", &rest))
-			cmd_readpa((int)fd, rest);
+			cmd_read((int)fd, rest, HYPM_READ_PA, "readpa");
+		else if (tok_eq(line, "readva", &rest))
+			cmd_read((int)fd, rest, HYPM_READ_VA, "readva");
 		else if (tok_eq(line, "help", &rest))
 			cmd_help();
 		else if (tok_eq(line, "exit", &rest) || tok_eq(line, "quit", &rest))

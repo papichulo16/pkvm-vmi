@@ -5,16 +5,16 @@ g_inc := $(abspath $(g_src_dir)/intf)
 subdir-ccflags-y += -I$(srctree)/arch/arm64/kvm/hyp/include/ -I$(g_inc)
 ccflags-y += -I$(g_inc)
 
-g_kern_src := $(sort $(wildcard $(g_src_dir)/kern/*.c))
+g_kern_src := $(sort $(wildcard $(g_src_dir)/vmi/kern/*.c))
 g_kern_obj := $(patsubst $(g_src_dir)/%.c,%.o,$(g_kern_src))
 
 obj-m := pkvmi.o
-pkvmi-y := $(g_kern_obj) hyp/kvm_nvhe.o
+pkvmi-y := $(g_kern_obj) vmi/hyp/kvm_nvhe.o
 
-$(obj)/hyp/kvm_nvhe.o: FORCE
-	$(Q)$(MAKE) $(build)=$(obj)/hyp $(obj)/hyp/kvm_nvhe.o
+$(obj)/vmi/hyp/kvm_nvhe.o: FORCE
+	$(Q)$(MAKE) $(build)=$(obj)/vmi/hyp $(obj)/vmi/hyp/kvm_nvhe.o
 
-clean-files := hyp/hyp.lds hyp/hyp-reloc.S
+clean-files := vmi/hyp/hyp.lds vmi/hyp/hyp-reloc.S
 else ifneq ($(KERNEL_SRC),)
 
 # Kleaf (scripts/pixel/build-device.sh) runs
@@ -27,12 +27,12 @@ else
 KDIR ?= $(abspath $(CURDIR)/../ignore/out-qemu-6.1)
 LLVM ?= 1
 
-g_usr_src := $(sort $(wildcard $(CURDIR)/usr/*.c))
+g_usr_src := $(sort $(wildcard $(CURDIR)/vmi/usr/*.c))
 
 all:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) modules
 	clang --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
-		-fno-builtin -fuse-ld=lld -isystem $(KDIR)/usr/include \
+		-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem $(KDIR)/usr/include \
 		-I intf -o userspace $(g_usr_src)
 
 clean:

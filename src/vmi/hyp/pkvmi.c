@@ -114,8 +114,7 @@ void pkvmi_hvc(struct kvm_cpu_context *ctx) {
         break;
       }
 
-      host_el2_read_pa(shared_page, (void *) cpu_reg(ctx, 2));
-      cpu_reg(ctx, 1) = 0;
+      cpu_reg(ctx, 1) = host_el2_read_pa(shared_page, (void *) cpu_reg(ctx, 2));
       break;
 
     case PKVMI_REG_DUMP_EL1:
@@ -137,6 +136,26 @@ void pkvmi_hvc(struct kvm_cpu_context *ctx) {
       }
 
       cpu_reg(ctx, 1) = host_el1_read_pa(shared_page, (void *) cpu_reg(ctx, 2));
+      break;
+
+    case PKVMI_READ_VA:
+
+      if (!shared_page) {
+        cpu_reg(ctx, 1) = 1;
+        break;
+      }
+
+      cpu_reg(ctx, 1) = host_el2_read_va(shared_page, cpu_reg(ctx, 2));
+      break;
+
+    case PKVMI_READ_VA_EL1:
+
+      if (!shared_page) {
+        cpu_reg(ctx, 1) = 1;
+        break;
+      }
+
+      cpu_reg(ctx, 1) = host_el1_read_va(shared_page, cpu_reg(ctx, 2));
       break;
 
     default:

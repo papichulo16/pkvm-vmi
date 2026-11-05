@@ -4,10 +4,15 @@ extern void* shared_page;
 extern void* kimage_voff;
 
 void host_el2_reg_dump(void* dst_page);
-void host_el2_read_pa(void* dst_page, void* pa);
+int host_el2_read_va(void* dst_page, unsigned long va);
+int host_el2_read_pa(void* dst_page, void* pa);
+
+bool el2_va_mapped(unsigned long va);
 
 void host_el1_reg_dump(void* dst_page);
+int host_el1_read_va(void* dst_page, unsigned long va);
 int host_el1_read_pa(void* dst_page, void* pa);
 void* host_el1_map_va(unsigned long va);
 void host_el1_unmap(void);
+int el2_pt_va_to_pa(phys_addr_t root_pa, int levels, unsigned long va, phys_addr_t* pa);
 

@@ -25,9 +25,23 @@ void host_el2_reg_dump(void* dst_page) {
   out->vtcr_el2 = read_sysreg(vtcr_el2);
 }
 
-void host_el2_read_pa(void* dst_page, void* pa) {
+int host_el2_read_va(void* dst_page, unsigned long va) {
 
-  void* src = ops->hyp_va((phys_addr_t) pa);
+  int ret = -EFAULT;
 
-  ops->memcpy(dst_page, src, PAGE_SIZE);
+  va &= PAGE_MASK;
+
+  if (!el2_va_mapped(va))
+    goto end;
+
+  ops->memcpy(dst_page, (void *) va, PAGE_SIZE);
+  ret = 0;
+
+end:
+  return ret;
+}
+
+int host_el2_read_pa(void* dst_page, void* pa) {
+
+  return host_el2_read_va(dst_page, (unsigned long) ops->hyp_va((phys_addr_t) pa));
 }
