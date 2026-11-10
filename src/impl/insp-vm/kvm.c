@@ -25,12 +25,14 @@ long kvm_create_pvm(int kvm_fd, unsigned int ipa_bits) {
 	unsigned long type = KVM_VM_TYPE_ARM_PROTECTED | KVM_VM_TYPE_ARM_IPA_SIZE(ipa_bits);
 	long ret;
 
+  /*
 	ret = sys_ioctl(kvm_fd, KVM_CHECK_EXTENSION, KVM_CAP_ARM_PROTECTED_VM);
 
 	if (ret <= 0) {
 		ret = sys_is_err(ret) ? ret : -EOPNOTSUPP;
 		goto out;
 	}
+  */
 
 	ret = sys_ioctl(kvm_fd, KVM_CREATE_VM, type);
 

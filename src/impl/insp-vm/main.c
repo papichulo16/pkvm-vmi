@@ -1,15 +1,18 @@
 #include "kvm.h"
+#include "vmm.h"
 #include "print.h"
 #include "sys.h"
 
-__asm__(".text\n"
+__asm__(
+  ".text\n"
 	".global _start\n"
 	"_start:\n"
 	"	mov x0, sp\n"
 	"	bl vmm_main\n"
-	"	brk #0\n");
+	"	brk #0\n"
+);
 
-static int vmm_run(int argc, char **argv) {
+static int vmm_init(int argc, char **argv) {
 
 	long kvm_fd;
 	long vm_fd;
@@ -38,6 +41,14 @@ static int vmm_run(int argc, char **argv) {
 	print_hex(vm_fd);
 	print("\n");
 
+  if (vmm_init_pvm(kvm_fd, vm_fd)) {
+
+		print_err("error in vmm init", 67);
+    goto close_kvm;
+  }
+
+  vmm_run_pvm(kvm_fd, vm_fd);
+
 	ret = 0;
 	sys_close((int)vm_fd);
 
@@ -52,5 +63,6 @@ void __attribute__((noreturn, used)) vmm_main(long *sp) {
 	int argc = (int)sp[0];
 	char **argv = (char **)(sp + 1);
 
-	sys_exit(vmm_run(argc, argv));
+	sys_exit(vmm_init(argc, argv));
 }
+

@@ -45,10 +45,11 @@ g_usr_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding 
 	-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem $(KDIR)/usr/include
 
 g_local_src := $(sort $(wildcard $(CURDIR)/impl/vmi/usr/*.c))
-g_bridge_src := $(sort $(wildcard $(CURDIR)/impl/insp-vm/*.c))
+g_pvm_src := $(CURDIR)/impl/insp-vm/pvm.c
+g_bridge_src := $(filter-out $(g_pvm_src),$(sort $(wildcard $(CURDIR)/impl/insp-vm/*.c)))
 
 g_usr_bin_local := userspace
-g_usr_bin_bridge := insp-vmm
+g_usr_bin_bridge := insp-vmm pvm.o
 
 all: module $(g_usr_bin_$(PKVMI_MODE))
 
@@ -67,9 +68,17 @@ userspace: $(g_local_src)
 insp-vmm: $(g_bridge_src) $(wildcard $(CURDIR)/intf/insp-vm/*.h)
 	clang $(g_usr_cflags) -I intf -I intf/insp-vm -o $@ $(g_bridge_src)
 
+# pvm.o is a flat binary, not an ELF: insp-vmm copies it byte for byte to guest
+# address 0, so the first instruction has to be the first byte of the file
+pvm.o: $(g_pvm_src)
+	clang $(g_usr_cflags) -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
+	llvm-objcopy -O binary -j .text $@.elf $@
+	rm -f $@.elf
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) clean
-	rm -f userspace insp-vmm
+	rm -f userspace insp-vmm pvm.o
 
 .PHONY: all local bridge module clean
 endif
+
