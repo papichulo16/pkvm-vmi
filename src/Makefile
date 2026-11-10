@@ -44,6 +44,7 @@ endif
 g_usr_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
 	-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem $(KDIR)/usr/include
 
+g_utils_src := $(sort $(wildcard $(CURDIR)/impl/utils/*.c))
 g_local_src := $(sort $(wildcard $(CURDIR)/impl/vmi/usr/*.c))
 g_pvm_src := $(CURDIR)/impl/insp-vm/pvm.c
 g_bridge_src := $(filter-out $(g_pvm_src),$(sort $(wildcard $(CURDIR)/impl/insp-vm/*.c)))
@@ -62,11 +63,11 @@ bridge:
 module:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) PKVMI_MODE=$(PKVMI_MODE) modules
 
-userspace: $(g_local_src)
-	clang $(g_usr_cflags) -I intf -o $@ $(g_local_src)
+userspace: $(g_local_src) $(g_utils_src) $(wildcard $(CURDIR)/intf/utils/*.h)
+	clang $(g_usr_cflags) -I intf -I intf/utils -o $@ $(g_local_src) $(g_utils_src)
 
-insp-vmm: $(g_bridge_src) $(wildcard $(CURDIR)/intf/insp-vm/*.h)
-	clang $(g_usr_cflags) -I intf -I intf/insp-vm -o $@ $(g_bridge_src)
+insp-vmm: $(g_bridge_src) $(g_utils_src) $(wildcard $(CURDIR)/intf/insp-vm/*.h $(CURDIR)/intf/utils/*.h)
+	clang $(g_usr_cflags) -I intf -I intf/insp-vm -I intf/utils -o $@ $(g_bridge_src) $(g_utils_src)
 
 # pvm.o is a flat binary, not an ELF: insp-vmm copies it byte for byte to guest
 # address 0, so the first instruction has to be the first byte of the file

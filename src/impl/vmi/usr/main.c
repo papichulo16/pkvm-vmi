@@ -1,69 +1,11 @@
 #include "pkvmi.h"
 #include "pkvmi_regs.h"
+#include "print.h"
+#include "sys.h"
 
 #define PAGE_SIZE 0x1000
 
-#define SYS_IOCTL 29
-#define SYS_OPENAT 56
-#define SYS_READ 63
-#define SYS_WRITE 64
-#define SYS_EXIT_GROUP 94
-
-#define AT_FDCWD (-100)
-#define O_RDWR 2
-
 #define LINE_LEN 256
-
-#define EFAULT 14
-#define ENODEV 19
-
-static long sys_call(long nr, long a0, long a1, long a2) {
-
-	register long x8 __asm__("x8") = nr;
-	register long x0 __asm__("x0") = a0;
-	register long x1 __asm__("x1") = a1;
-	register long x2 __asm__("x2") = a2;
-
-	__asm__ volatile("svc #0" : "+r"(x0) : "r"(x8), "r"(x1), "r"(x2)
-			 : "memory");
-	return x0;
-}
-
-static long str_len(const char *s) {
-
-	long len = 0;
-
-	while (s[len])
-		len++;
-
-	return len;
-}
-
-static void print_n(const char *str, long len) {
-
-	sys_call(SYS_WRITE, 1, (long)str, len);
-}
-
-static void print(const char *str) {
-
-	print_n(str, str_len(str));
-}
-
-static void print_u64_hex(unsigned long v) {
-
-	char buf[18];
-	int i;
-
-	buf[0] = '0';
-	buf[1] = 'x';
-
-	for (i = 0; i < 16; i++) {
-		int nib = (v >> ((15 - i) * 4)) & 0xf;
-		buf[2 + i] = nib < 10 ? '0' + nib : 'a' + nib - 10;
-	}
-
-	print_n(buf, sizeof(buf));
-}
 
 static void print_byte_hex(unsigned char b) {
 
@@ -74,7 +16,7 @@ static void print_byte_hex(unsigned char b) {
 	buf[0] = hi < 10 ? '0' + hi : 'a' + hi - 10;
 	buf[1] = lo < 10 ? '0' + lo : 'a' + lo - 10;
 
-	print_n(buf, sizeof(buf));
+	sys_write(1, buf, sizeof(buf));
 }
 
 static const char *skip_spaces(const char *s) {
@@ -141,7 +83,7 @@ static long read_line(char *buf, long max) {
 
 	while (len < max - 1) {
 		char c;
-		long r = sys_call(SYS_READ, 0, (long)&c, 1);
+		long r = sys_read(0, &c, 1);
 
 		if (r <= 0)
 			return len == 0 ? -1 : len;
@@ -162,23 +104,23 @@ static void cmd_regdump(int fd) {
 	char page[IOCTL_MSG_LEN];
 	struct hyp_reg_dump *r = (struct hyp_reg_dump *)page;
 
-	if (sys_call(SYS_IOCTL, fd, HYPM_REG_DUMP, (long)page) != 0) {
+	if (sys_ioctl(fd, HYPM_REG_DUMP, (unsigned long)page) != 0) {
 		print("regdump failed\n");
 		return;
 	}
 
-	print("hcr_el2   "); print_u64_hex(r->hcr_el2);   print("\n");
-	print("sctlr_el2 "); print_u64_hex(r->sctlr_el2); print("\n");
-	print("tcr_el2   "); print_u64_hex(r->tcr_el2);   print("\n");
-	print("ttbr0_el2 "); print_u64_hex(r->ttbr0_el2); print("\n");
-	print("mair_el2  "); print_u64_hex(r->mair_el2);  print("\n");
-	print("vbar_el2  "); print_u64_hex(r->vbar_el2);  print("\n");
-	print("esr_el2   "); print_u64_hex(r->esr_el2);   print("\n");
-	print("elr_el2   "); print_u64_hex(r->elr_el2);   print("\n");
-	print("spsr_el2  "); print_u64_hex(r->spsr_el2);  print("\n");
-	print("tpidr_el2 "); print_u64_hex(r->tpidr_el2); print("\n");
-	print("vttbr_el2 "); print_u64_hex(r->vttbr_el2); print("\n");
-	print("vtcr_el2  "); print_u64_hex(r->vtcr_el2);  print("\n");
+	print("hcr_el2   "); print_hex(r->hcr_el2);   print("\n");
+	print("sctlr_el2 "); print_hex(r->sctlr_el2); print("\n");
+	print("tcr_el2   "); print_hex(r->tcr_el2);   print("\n");
+	print("ttbr0_el2 "); print_hex(r->ttbr0_el2); print("\n");
+	print("mair_el2  "); print_hex(r->mair_el2);  print("\n");
+	print("vbar_el2  "); print_hex(r->vbar_el2);  print("\n");
+	print("esr_el2   "); print_hex(r->esr_el2);   print("\n");
+	print("elr_el2   "); print_hex(r->elr_el2);   print("\n");
+	print("spsr_el2  "); print_hex(r->spsr_el2);  print("\n");
+	print("tpidr_el2 "); print_hex(r->tpidr_el2); print("\n");
+	print("vttbr_el2 "); print_hex(r->vttbr_el2); print("\n");
+	print("vtcr_el2  "); print_hex(r->vtcr_el2);  print("\n");
 }
 
 static void cmd_regdump_el1(int fd) {
@@ -186,23 +128,23 @@ static void cmd_regdump_el1(int fd) {
 	char page[IOCTL_MSG_LEN];
 	struct el1_reg_dump *r = (struct el1_reg_dump *)page;
 
-	if (sys_call(SYS_IOCTL, fd, HYPM_REG_DUMP_EL1, (long)page) != 0) {
+	if (sys_ioctl(fd, HYPM_REG_DUMP_EL1, (unsigned long)page) != 0) {
 		print("regdump_el1 failed\n");
 		return;
 	}
 
-	print("sctlr_el1 "); print_u64_hex(r->sctlr_el1); print("\n");
-	print("tcr_el1   "); print_u64_hex(r->tcr_el1);   print("\n");
-	print("ttbr0_el1 "); print_u64_hex(r->ttbr0_el1); print("\n");
-	print("ttbr1_el1 "); print_u64_hex(r->ttbr1_el1); print("\n");
-	print("mair_el1  "); print_u64_hex(r->mair_el1);  print("\n");
-	print("vbar_el1  "); print_u64_hex(r->vbar_el1);  print("\n");
-	print("esr_el1   "); print_u64_hex(r->esr_el1);   print("\n");
-	print("elr_el1   "); print_u64_hex(r->elr_el1);   print("\n");
-	print("spsr_el1  "); print_u64_hex(r->spsr_el1);  print("\n");
-	print("sp_el1    "); print_u64_hex(r->sp_el1);    print("\n");
-	print("tpidr_el1 "); print_u64_hex(r->tpidr_el1); print("\n");
-	print("par_el1   "); print_u64_hex(r->par_el1);   print("\n");
+	print("sctlr_el1 "); print_hex(r->sctlr_el1); print("\n");
+	print("tcr_el1   "); print_hex(r->tcr_el1);   print("\n");
+	print("ttbr0_el1 "); print_hex(r->ttbr0_el1); print("\n");
+	print("ttbr1_el1 "); print_hex(r->ttbr1_el1); print("\n");
+	print("mair_el1  "); print_hex(r->mair_el1);  print("\n");
+	print("vbar_el1  "); print_hex(r->vbar_el1);  print("\n");
+	print("esr_el1   "); print_hex(r->esr_el1);   print("\n");
+	print("elr_el1   "); print_hex(r->elr_el1);   print("\n");
+	print("spsr_el1  "); print_hex(r->spsr_el1);  print("\n");
+	print("sp_el1    "); print_hex(r->sp_el1);    print("\n");
+	print("tpidr_el1 "); print_hex(r->tpidr_el1); print("\n");
+	print("par_el1   "); print_hex(r->par_el1);   print("\n");
 }
 
 static void print_read_err(const char *name, long err) {
@@ -215,7 +157,7 @@ static void print_read_err(const char *name, long err) {
 		print(": not initialized\n");
 	else {
 		print(": failed, errno ");
-		print_u64_hex(-err);
+		print_hex(-err);
 		print("\n");
 	}
 }
@@ -239,7 +181,7 @@ static void cmd_read(int fd, const char *arg, unsigned long ioctl_nr, const char
 	}
 
 	*(unsigned long *)page = addr;
-	err = sys_call(SYS_IOCTL, fd, ioctl_nr, (long)page);
+	err = sys_ioctl(fd, ioctl_nr, (unsigned long)page);
 
 	if (err) {
 		print_read_err(name, err);
@@ -247,11 +189,11 @@ static void cmd_read(int fd, const char *arg, unsigned long ioctl_nr, const char
 	}
 
 	for (row = 0; row < (int) (IOCTL_MSG_LEN / 0x10); row++) {
-		print_u64_hex(addr + row * 16);
+		print_hex(addr + row * 16);
 		print("  ");
 
 		for (col = 0; col < 2; col++) {
-			print_u64_hex(((unsigned long *) page)[row * 2 + col]);
+			print_hex(((unsigned long *) page)[row * 2 + col]);
 			print(" ");
 		}
 
@@ -276,15 +218,14 @@ void __attribute__((noreturn)) _start(void) {
 
 	char line[LINE_LEN];
 	char msg[IOCTL_MSG_LEN];
-	long fd = sys_call(SYS_OPENAT, AT_FDCWD, (long)"/dev/pkvmi", O_RDWR);
+	long fd = sys_open("/dev/pkvmi", O_RDWR);
 
 	if (fd < 0) {
 		print("cannot open /dev/pkvmi\n");
-		sys_call(SYS_EXIT_GROUP, 1, 0, 0);
-		for (;;);
+		sys_exit(1);
 	}
 
-	if (sys_call(SYS_IOCTL, fd, HYPM_INIT, (long)msg) != 0)
+	if (sys_ioctl(fd, HYPM_INIT, (unsigned long)msg) != 0)
 		print("init failed\n");
 	else
 		print("pkvmi init: ");
@@ -324,7 +265,6 @@ void __attribute__((noreturn)) _start(void) {
 	}
 
 	print("bye\n");
-	sys_call(SYS_EXIT_GROUP, 0, 0, 0);
-	for (;;);
+	sys_exit(0);
 }
 
