@@ -6,7 +6,7 @@
 #
 # The kernel passes the hyp VA of the registered hvc handler to
 # __pkvm_register_el2_call() before any hvc can reach it. gdb stops there,
-# loads src/vmi/hyp/kvm_nvhe.o with .hyp.text rebased to the module's hyp VA, and
+# loads src/impl/vmi/hyp/kvm_nvhe.o with .hyp.text rebased to the module's hyp VA, and
 # sets hardware breakpoints on the EL2 functions in $HYP_FUNCS.
 #
 # Env: HYP_FUNCS  EL2 symbols to break on (default: the hvc handler)
@@ -17,7 +17,7 @@ set -euo pipefail
 
 g_here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 g_kout=${KOUT:-$g_here/../ignore/out-qemu-6.1}
-g_obj=$(realpath "$g_here/../src/vmi/hyp/kvm_nvhe.o")
+g_obj=$(realpath "$g_here/../src/impl/vmi/hyp/kvm_nvhe.o")
 g_hvc=${HVC_FN:-host_el1_map_va}
 g_funcs=${HYP_FUNCS:-$g_hvc}
 g_gdb=${GDB:-gdb}

@@ -15,5 +15,6 @@ tests/*/hyp/hyp.lds
 tests/*/hyp/hyp-reloc.S
 bugreport-*.zip
 src/userspace
-src/vmi/hyp/hyp.lds
-src/vmi/hyp/hyp-reloc.S
+src/insp-vmm
+src/impl/vmi/hyp/hyp.lds
+src/impl/vmi/hyp/hyp-reloc.S

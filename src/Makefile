@@ -5,16 +5,22 @@ g_inc := $(abspath $(g_src_dir)/intf)
 subdir-ccflags-y += -I$(srctree)/arch/arm64/kvm/hyp/include/ -I$(g_inc)
 ccflags-y += -I$(g_inc)
 
-g_kern_src := $(sort $(wildcard $(g_src_dir)/vmi/kern/*.c))
+# PKVMI_MODE=bridge lets the EL1/EL2 code compile in what the inspection VM needs
+ifeq ($(PKVMI_MODE),bridge)
+subdir-ccflags-y += -DPKVMI_MODE_BRIDGE
+ccflags-y += -DPKVMI_MODE_BRIDGE
+endif
+
+g_kern_src := $(sort $(wildcard $(g_src_dir)/impl/vmi/kern/*.c))
 g_kern_obj := $(patsubst $(g_src_dir)/%.c,%.o,$(g_kern_src))
 
 obj-m := pkvmi.o
-pkvmi-y := $(g_kern_obj) vmi/hyp/kvm_nvhe.o
+pkvmi-y := $(g_kern_obj) impl/vmi/hyp/kvm_nvhe.o
 
-$(obj)/vmi/hyp/kvm_nvhe.o: FORCE
-	$(Q)$(MAKE) $(build)=$(obj)/vmi/hyp $(obj)/vmi/hyp/kvm_nvhe.o
+$(obj)/impl/vmi/hyp/kvm_nvhe.o: FORCE
+	$(Q)$(MAKE) $(build)=$(obj)/impl/vmi/hyp $(obj)/impl/vmi/hyp/kvm_nvhe.o
 
-clean-files := vmi/hyp/hyp.lds vmi/hyp/hyp-reloc.S
+clean-files := impl/vmi/hyp/hyp.lds impl/vmi/hyp/hyp-reloc.S
 else ifneq ($(KERNEL_SRC),)
 
 # Kleaf (scripts/pixel/build-device.sh) runs
@@ -27,15 +33,43 @@ else
 KDIR ?= $(abspath $(CURDIR)/../ignore/out-qemu-6.1)
 LLVM ?= 1
 
-g_usr_src := $(sort $(wildcard $(CURDIR)/vmi/usr/*.c))
+# local  : pkvmi.ko + `userspace`, the CLI that talks to /dev/pkvmi directly
+# bridge : pkvmi.ko + `insp-vmm`, a host VMM that runs the inspection pVM
+PKVMI_MODE ?= local
 
-all:
-	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) modules
-	clang --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
-		-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem $(KDIR)/usr/include \
-		-I intf -o userspace $(g_usr_src)
+ifeq ($(filter $(PKVMI_MODE),local bridge),)
+$(error PKVMI_MODE must be local or bridge, got '$(PKVMI_MODE)')
+endif
+
+g_usr_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
+	-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem $(KDIR)/usr/include
+
+g_local_src := $(sort $(wildcard $(CURDIR)/impl/vmi/usr/*.c))
+g_bridge_src := $(sort $(wildcard $(CURDIR)/impl/insp-vm/*.c))
+
+g_usr_bin_local := userspace
+g_usr_bin_bridge := insp-vmm
+
+all: module $(g_usr_bin_$(PKVMI_MODE))
+
+local:
+	$(MAKE) PKVMI_MODE=local
+
+bridge:
+	$(MAKE) PKVMI_MODE=bridge
+
+module:
+	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) PKVMI_MODE=$(PKVMI_MODE) modules
+
+userspace: $(g_local_src)
+	clang $(g_usr_cflags) -I intf -o $@ $(g_local_src)
+
+insp-vmm: $(g_bridge_src) $(wildcard $(CURDIR)/intf/insp-vm/*.h)
+	clang $(g_usr_cflags) -I intf -I intf/insp-vm -o $@ $(g_bridge_src)
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) clean
-	rm -f userspace
+	rm -f userspace insp-vmm
+
+.PHONY: all local bridge module clean
 endif

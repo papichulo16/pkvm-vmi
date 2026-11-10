@@ -42,7 +42,7 @@ build_userspace() {
 	tar -C "$hdrs" -xzf "$g_dist/kernel-uapi-headers.tar.gz"
 	"$g_llvm/clang" --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
 		-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem "$hdrs/usr/include" \
-		-I "$g_repo/src/intf" -o "$g_out/userspace" "$g_repo"/src/vmi/usr/*.c
+		-I "$g_repo/src/intf" -o "$g_out/userspace" "$g_repo"/src/impl/vmi/usr/*.c
 	rm -rf "$hdrs"
 }
 
