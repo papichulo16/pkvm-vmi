@@ -1,6 +1,5 @@
 #include "bridge.h"
 #include "print.h"
-#include "sys.h"
 
 void bridge_device_read(unsigned long off) {
 

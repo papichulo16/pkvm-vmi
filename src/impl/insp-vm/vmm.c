@@ -1,10 +1,13 @@
-#include <linux/fs.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "kvm.h"
 #include "vmm.h"
 #include "bridge.h"
 #include "print.h"
-#include "sys.h"
 
 #define PVM_IMG_PATH "pvm.o"
 #define PVM_IMG_SLOT 0
@@ -81,35 +84,38 @@ static long pvm_init_mem(int kvm_fd, int vm_fd) {
 
   (void)kvm_fd;
 
-  fd = sys_open(PVM_IMG_PATH, O_RDONLY);
+  fd = open(PVM_IMG_PATH, O_RDONLY | O_CLOEXEC);
 
-  if (sys_is_err(fd)) {
+  if (fd < 0) {
 
-    ret = fd;
+    ret = -errno;
     goto out;
   }
 
-  size = sys_call(__NR_lseek, fd, 0, SEEK_END, 0, 0, 0);
-  sys_call(__NR_lseek, fd, 0, SEEK_SET, 0, 0, 0);
+  size = lseek(fd, 0, SEEK_END);
+  lseek(fd, 0, SEEK_SET);
 
   // rounded to the nearest page
   map_size = (size + PVM_PAGE_SIZE - 1) & ~(PVM_PAGE_SIZE - 1);
-  mem = sys_mmap(0, map_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  stack = sys_mmap(0, PVM_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  mem = mmap(0, map_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  stack = mmap(0, PVM_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-  if (sys_mmap_failed(mem)) {
+  if (mem == MAP_FAILED) {
 
-    ret = (long)mem;
+    ret = -errno;
     goto close_fd;
   }
 
   // write the file into the mmapped region
   while (done < size) {
 
-    ret = sys_read(fd, mem + done, size - done);
+    ret = read(fd, mem + done, size - done);
 
-    if (sys_is_err(ret))
+    if (ret < 0) {
+
+      ret = -errno;
       goto unmap;
+    }
 
     if (ret == 0) {
 
@@ -122,21 +128,27 @@ static long pvm_init_mem(int kvm_fd, int vm_fd) {
 
   ret = kvm_set_mem(vm_fd, PVM_IMG_SLOT, PVM_IMG_GPA, map_size, mem);
 
-  if (sys_is_err(ret))
+  if (ret < 0) {
+
+    ret = -errno;
     goto unmap;
+  }
 
   ret = kvm_set_mem(vm_fd, PVM_STACK_SLOT, PVM_STACK_GPA, PVM_STACK_SIZE, stack);
 
-  if (sys_is_err(ret))
+  if (ret < 0) {
+
+    ret = -errno;
     goto unmap;
+  }
 
   goto close_fd;
 
 unmap:
-  sys_munmap(mem, map_size);
-  sys_munmap(stack, PVM_STACK_SIZE);
+  munmap(mem, map_size);
+  munmap(stack, PVM_STACK_SIZE);
 close_fd:
-  sys_close(fd);
+  close(fd);
 out:
   return ret;
 }
@@ -150,15 +162,15 @@ static int vmm_init_pvm_vcpu(int vm_fd) {
     .regs.pc = PVM_IMG_GPA,
     .regs.sp = PVM_STACK_GPA + PVM_STACK_SIZE,
   };
-  sys_ioctl(vcpu_fd, KVM_SET_REGS, (unsigned long) &regs);
+  ioctl(vcpu_fd, KVM_SET_REGS, (unsigned long) &regs);
 
   return vcpu_fd;
 }
 
 static struct kvm_run* vmm_init_pvm_run_obj(int kvm_fd, int vcpu_fd) {
 
-  long mmap_size = sys_ioctl(kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
-  return (struct kvm_run *) sys_mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpu_fd, 0);
+  long mmap_size = ioctl(kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
+  return (struct kvm_run *) mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpu_fd, 0);
 }
 
 int vmm_init_pvm(int kvm_fd, int vm_fd) {

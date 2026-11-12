@@ -1,7 +1,12 @@
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #include "pkvmi.h"
 #include "pkvmi_regs.h"
 #include "print.h"
-#include "sys.h"
 
 #define PAGE_SIZE 0x1000
 
@@ -16,7 +21,7 @@ static void print_byte_hex(unsigned char b) {
 	buf[0] = hi < 10 ? '0' + hi : 'a' + hi - 10;
 	buf[1] = lo < 10 ? '0' + lo : 'a' + lo - 10;
 
-	sys_write(1, buf, sizeof(buf));
+	write(1, buf, sizeof(buf));
 }
 
 static const char *skip_spaces(const char *s) {
@@ -83,7 +88,7 @@ static long read_line(char *buf, long max) {
 
 	while (len < max - 1) {
 		char c;
-		long r = sys_read(0, &c, 1);
+		long r = read(0, &c, 1);
 
 		if (r <= 0)
 			return len == 0 ? -1 : len;
@@ -104,7 +109,7 @@ static void cmd_regdump(int fd) {
 	char page[IOCTL_MSG_LEN];
 	struct hyp_reg_dump *r = (struct hyp_reg_dump *)page;
 
-	if (sys_ioctl(fd, HYPM_REG_DUMP, (unsigned long)page) != 0) {
+	if (ioctl(fd, HYPM_REG_DUMP, (unsigned long)page) != 0) {
 		print("regdump failed\n");
 		return;
 	}
@@ -128,7 +133,7 @@ static void cmd_regdump_el1(int fd) {
 	char page[IOCTL_MSG_LEN];
 	struct el1_reg_dump *r = (struct el1_reg_dump *)page;
 
-	if (sys_ioctl(fd, HYPM_REG_DUMP_EL1, (unsigned long)page) != 0) {
+	if (ioctl(fd, HYPM_REG_DUMP_EL1, (unsigned long)page) != 0) {
 		print("regdump_el1 failed\n");
 		return;
 	}
@@ -181,10 +186,10 @@ static void cmd_read(int fd, const char *arg, unsigned long ioctl_nr, const char
 	}
 
 	*(unsigned long *)page = addr;
-	err = sys_ioctl(fd, ioctl_nr, (unsigned long)page);
+	err = ioctl(fd, ioctl_nr, (unsigned long)page);
 
 	if (err) {
-		print_read_err(name, err);
+		print_read_err(name, -errno);
 		return;
 	}
 
@@ -214,18 +219,18 @@ static void cmd_help(void) {
 	print("  exit                quit\n");
 }
 
-void __attribute__((noreturn)) _start(void) {
+int main(void) {
 
 	char line[LINE_LEN];
 	char msg[IOCTL_MSG_LEN];
-	long fd = sys_open("/dev/pkvmi", O_RDWR);
+	long fd = open("/dev/pkvmi", O_RDWR | O_CLOEXEC);
 
 	if (fd < 0) {
 		print("cannot open /dev/pkvmi\n");
-		sys_exit(1);
+		exit(1);
 	}
 
-	if (sys_ioctl(fd, HYPM_INIT, (unsigned long)msg) != 0)
+	if (ioctl(fd, HYPM_INIT, (unsigned long)msg) != 0)
 		print("init failed\n");
 	else
 		print("pkvmi init: ");
@@ -265,6 +270,6 @@ void __attribute__((noreturn)) _start(void) {
 	}
 
 	print("bye\n");
-	sys_exit(0);
+	exit(0);
 }
 

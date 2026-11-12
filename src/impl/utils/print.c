@@ -1,5 +1,6 @@
+#include <unistd.h>
+
 #include "print.h"
-#include "sys.h"
 
 static unsigned long str_len(const char *s) {
 
@@ -13,7 +14,7 @@ static unsigned long str_len(const char *s) {
 
 void print(const char *str) {
 
-	sys_write(1, str, str_len(str));
+	write(1, str, str_len(str));
 }
 
 void print_hex(unsigned long v) {
@@ -30,7 +31,7 @@ void print_hex(unsigned long v) {
 		buf[2 + i] = nib < 10 ? '0' + nib : 'a' + nib - 10;
 	}
 
-	sys_write(1, buf, sizeof(buf));
+	write(1, buf, sizeof(buf));
 }
 
 void print_err(const char *what, long err) {

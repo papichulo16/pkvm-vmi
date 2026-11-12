@@ -41,7 +41,17 @@ ifeq ($(filter $(PKVMI_MODE),local bridge),)
 $(error PKVMI_MODE must be local or bridge, got '$(PKVMI_MODE)')
 endif
 
-g_usr_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
+# built by scripts/fetch-musl.sh
+MUSL ?= $(abspath $(CURDIR)/../ignore/musl-aarch64)
+
+# crt files are listed by hand because the host clang has no aarch64 libgcc/compiler-rt
+g_usr_cflags := --target=aarch64-linux-musl -O2 -static -nostdlib -nostdinc \
+	-fuse-ld=lld -isystem $(MUSL)/include -isystem $(KDIR)/usr/include
+g_usr_crt_begin := $(MUSL)/lib/crt1.o $(MUSL)/lib/crti.o
+g_usr_crt_end := $(MUSL)/lib/libc.a $(MUSL)/lib/crtn.o
+
+# the pVM guest has no OS under it, so it stays freestanding
+g_pvm_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
 	-fno-builtin -fno-stack-protector -fuse-ld=lld -isystem $(KDIR)/usr/include
 
 g_utils_src := $(sort $(wildcard $(CURDIR)/impl/utils/*.c))
@@ -64,15 +74,15 @@ module:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) ARCH=arm64 LLVM=$(LLVM) PKVMI_MODE=$(PKVMI_MODE) modules
 
 userspace: $(g_local_src) $(g_utils_src) $(wildcard $(CURDIR)/intf/utils/*.h)
-	clang $(g_usr_cflags) -I intf -I intf/utils -o $@ $(g_local_src) $(g_utils_src)
+	clang $(g_usr_cflags) -I intf -I intf/utils -o $@ $(g_usr_crt_begin) $(g_local_src) $(g_utils_src) $(g_usr_crt_end)
 
 insp-vmm: $(g_bridge_src) $(g_utils_src) $(wildcard $(CURDIR)/intf/insp-vm/*.h $(CURDIR)/intf/utils/*.h)
-	clang $(g_usr_cflags) -I intf -I intf/insp-vm -I intf/utils -o $@ $(g_bridge_src) $(g_utils_src)
+	clang $(g_usr_cflags) -I intf -I intf/insp-vm -I intf/utils -o $@ $(g_usr_crt_begin) $(g_bridge_src) $(g_utils_src) $(g_usr_crt_end)
 
 # pvm.o is a flat binary, not an ELF: insp-vmm copies it byte for byte to guest
 # address 0, so the first instruction has to be the first byte of the file
 pvm.o: $(g_pvm_src)
-	clang $(g_usr_cflags) -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
+	clang $(g_pvm_cflags) -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
 	llvm-objcopy -O binary -j .text $@.elf $@
 	rm -f $@.elf
 
