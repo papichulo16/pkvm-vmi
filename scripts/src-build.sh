@@ -13,4 +13,4 @@ if [[ $PKVMI_MODE = bridge ]]; then
 	g_bins=(-b insp-vmm -b pvm.o)
 fi
 
-exec "$g_here/dev.sh" -C "$g_here/../src" "${g_bins[@]}" "$@"
+exec "$g_here/dev.sh" -C "$g_here/.." -m src/pkvmi.ko "${g_bins[@]}" "$@"

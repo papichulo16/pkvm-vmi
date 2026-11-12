@@ -14,7 +14,7 @@ __pycache__/
 tests/*/hyp/hyp.lds
 tests/*/hyp/hyp-reloc.S
 bugreport-*.zip
-src/userspace
-src/insp-vmm
+/userspace
+/insp-vmm
 src/impl/vmi/hyp/hyp.lds
 src/impl/vmi/hyp/hyp-reloc.S
