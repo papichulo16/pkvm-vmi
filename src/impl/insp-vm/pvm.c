@@ -1,12 +1,6 @@
+__asm__(".include \"pvm_asm.inc\"\n");
 
-__asm__(
-  ".text\n"
-	".global _start\n"
-	"reset:\n"
-	"	b boot_start\n"
-);
-
-void arm64_disable_dcache(void) {
+static void arm64_disable_dcache(void) {
     unsigned long sctlr;
 
     __asm__ __volatile__(
@@ -21,18 +15,49 @@ void arm64_disable_dcache(void) {
     );
 }
 
+void sync_handler(void* sp) {}
+void irq_handler(void* sp) {}
+void fiq_handler(void* sp) {}
+void serror_handler(void* sp) {}
+
+// https://wiki.osdev.org/AArch64_Exceptions
+static void init_vbar_el1() {
+
+  __asm__(
+      "adr x0, vbase\n\t"
+      "msr vbar_el1, x0\n\t"
+      ::: "x0"
+  );
+}
+
+static void init_gic() {
+}
+
+static void init_boot() {
+
+  init_vbar_el1();
+  init_gic();
+} 
+
+static void __attribute__((noreturn)) idle() {
+  while (1) {
+    __asm__("wfi");
+  }
+}
+
 void __attribute__((noreturn, used)) boot_start() {
 
   static volatile int* mmio = (int *) 0x67000000;
   int val;
 
   arm64_disable_dcache();
+  init_boot();
 
   for (int i = 0; i < 10; i++)
     *mmio = i;
 
   val = *mmio;
 
-  while (1);
+  idle();
 }
 

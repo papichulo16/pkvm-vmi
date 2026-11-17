@@ -8,6 +8,7 @@
 #include "vmm.h"
 #include "bridge.h"
 #include "print.h"
+#include "user_msgq.h"
 
 #define PVM_IMG_PATH "pvm.o"
 #define PVM_IMG_SLOT 0
@@ -18,6 +19,9 @@
 #define PVM_STACK_GPA 0xcd000000
 #define PVM_STACK_SIZE 0x4000
 
+#define GIC_DIST_BASE  0x08000000ULL
+#define GIC_REDIST_BASE 0x080A0000ULL
+
 struct vmm_device devices[] = {
   {
     .paddr = 0x67000000,
@@ -27,7 +31,7 @@ struct vmm_device devices[] = {
   }
 };
 
-static void vmm_handle_mmio_exit(struct kvm_run* run) {
+static void vmm_handle_mmio_exit(msgq_t* q, struct kvm_run* run) {
 
   unsigned long gpa = run->mmio.phys_addr; 
   unsigned char* data = run->mmio.data;
@@ -44,20 +48,20 @@ static void vmm_handle_mmio_exit(struct kvm_run* run) {
       continue;
 
     if (run->mmio.is_write && dev->write)
-      dev->write(gpa, *(unsigned long *) data);
+      dev->write(q, gpa, *(unsigned long *) data);
     else if (dev->read)
-      dev->read(gpa);
+      dev->read(q, gpa);
 
     break;
   }
 }
 
-static int vmm_handle_vm_exit(struct kvm_run* run) {
+static int vmm_handle_vm_exit(msgq_t* q, struct kvm_run* run) {
 
   switch (run->exit_reason) {
 
     case KVM_EXIT_MMIO:
-      vmm_handle_mmio_exit(run);
+      vmm_handle_mmio_exit(q, run);
       break;
 
     case KVM_EXIT_HLT:
@@ -98,12 +102,19 @@ static long pvm_init_mem(int kvm_fd, int vm_fd) {
   // rounded to the nearest page
   map_size = (size + PVM_PAGE_SIZE - 1) & ~(PVM_PAGE_SIZE - 1);
   mem = mmap(0, map_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  stack = mmap(0, PVM_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   if (mem == MAP_FAILED) {
 
     ret = -errno;
     goto close_fd;
+  }
+
+  stack = mmap(0, PVM_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+  if (stack == MAP_FAILED) {
+
+    ret = -errno;
+    goto unmap_mem;
   }
 
   // write the file into the mmapped region
@@ -145,11 +156,68 @@ static long pvm_init_mem(int kvm_fd, int vm_fd) {
   goto close_fd;
 
 unmap:
-  munmap(mem, map_size);
   munmap(stack, PVM_STACK_SIZE);
+unmap_mem:
+  munmap(mem, map_size);
 close_fd:
   close(fd);
 out:
+  return ret;
+}
+
+static int pvm_create_vgic(int vm_fd) {
+
+    struct kvm_create_device vgic = {
+        .type = KVM_DEV_TYPE_ARM_VGIC_V3,
+        .flags = 0,
+    };
+
+    if (ioctl(vm_fd, KVM_CREATE_DEVICE, &vgic) < 0) {
+        print_err("KVM_CREATE_DEVICE", 0);
+        return -1;
+    }
+
+    return vgic.fd;
+}
+
+static int set_vgic_addr(int vgic_fd, unsigned long addr, unsigned int type) {
+
+    struct kvm_device_attr attr = {
+        .group = KVM_DEV_ARM_VGIC_GRP_ADDR,
+        .attr  = type,
+        .addr  = (unsigned long) &addr,
+    };
+
+    return ioctl(vgic_fd, KVM_SET_DEVICE_ATTR, &attr);
+}
+
+static int pvm_init_vgic(int vm_fd) {
+
+  int vgic = pvm_create_vgic(vm_fd);
+
+  if (vgic < 0)
+    return -1;
+
+  set_vgic_addr(vgic, GIC_DIST_BASE, KVM_VGIC_V3_ADDR_TYPE_DIST);
+  set_vgic_addr(vgic, GIC_REDIST_BASE, KVM_VGIC_V3_ADDR_TYPE_REDIST);
+
+  struct kvm_device_attr attr = {
+    .group = KVM_DEV_ARM_VGIC_GRP_CTRL,
+    .attr  = KVM_DEV_ARM_VGIC_CTRL_INIT,
+  };
+
+  if (ioctl(vgic, KVM_SET_DEVICE_ATTR, &attr) < 0) {
+      print_err("VGIC initialization", 0);
+      return -1;
+  }
+
+  return 0;
+}
+
+static int pvm_init_perif(int vm_fd) {
+
+  int ret = pvm_init_vgic(vm_fd);
+
   return ret;
 }
 
@@ -158,11 +226,8 @@ static int vmm_init_pvm_vcpu(int vm_fd) {
   int vcpu_fd = (int) kvm_create_vcpu(vm_fd, (unsigned long) 0);
   kvm_init_vcpu(vm_fd, vcpu_fd);
 
-  struct kvm_regs regs = {
-    .regs.pc = PVM_IMG_GPA,
-    .regs.sp = PVM_STACK_GPA + PVM_STACK_SIZE,
-  };
-  ioctl(vcpu_fd, KVM_SET_REGS, (unsigned long) &regs);
+  kvm_set_reg(vcpu_fd, KVM_REG_PC, PVM_IMG_GPA);
+  kvm_set_reg(vcpu_fd, KVM_CORE_REG(sp_el1), PVM_STACK_GPA + PVM_STACK_SIZE);
 
   return vcpu_fd;
 }
@@ -183,17 +248,20 @@ int vmm_init_pvm(int kvm_fd, int vm_fd) {
   return (int)ret;
 }
 
-void vmm_run_pvm(int kvm_fd, int vm_fd) {
+void vmm_run_pvm(msgq_t* q, int kvm_fd, int vm_fd) {
 
   int vcpu_fd = vmm_init_pvm_vcpu(vm_fd);
   struct kvm_run* run = vmm_init_pvm_run_obj(kvm_fd, vcpu_fd);
+
+  if (pvm_init_perif(vm_fd))
+    return;
 
   print("running...\n");
 
   while(1) {
 
     kvm_run_vcpu(vcpu_fd);
-    if (vmm_handle_vm_exit(run))
+    if (vmm_handle_vm_exit(q, run))
       return;
   }
 }

@@ -12,11 +12,15 @@ endif
 # built by scripts/fetch-musl.sh
 MUSL ?= $(abspath $(CURDIR)/ignore/musl-aarch64)
 
+# host clang has no aarch64 compiler-rt, so borrow the AOSP prebuilt one.
+# musl's printf needs its 128-bit long double helpers (__addtf3 etc.)
+RT_BUILTINS ?= $(abspath $(CURDIR)/ignore/pixel/kernels/pantah-6.1-android16/prebuilts/clang/host/linux-x86/clang-r487747c/lib/clang/17/lib/linux/aarch64-unknown-linux-musl/lib/linux/libclang_rt.builtins-aarch64.a)
+
 # crt files are listed by hand because the host clang has no aarch64 libgcc/compiler-rt
 g_usr_cflags := --target=aarch64-linux-musl -O2 -static -nostdlib -nostdinc \
 	-fuse-ld=lld -isystem $(MUSL)/include -isystem $(KDIR)/usr/include
 g_usr_crt_begin := $(MUSL)/lib/crt1.o $(MUSL)/lib/crti.o
-g_usr_crt_end := $(MUSL)/lib/libc.a $(MUSL)/lib/crtn.o
+g_usr_crt_end := $(MUSL)/lib/libc.a $(RT_BUILTINS) $(MUSL)/lib/crtn.o
 
 # the pVM guest has no OS under it, so it stays freestanding
 g_pvm_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding \
@@ -50,7 +54,7 @@ insp-vmm: $(g_bridge_src) $(g_utils_src) $(wildcard $(CURDIR)/src/intf/insp-vm/*
 # pvm.o is a flat binary, not an ELF: insp-vmm copies it byte for byte to guest
 # address 0, so the first instruction has to be the first byte of the file
 pvm.o: $(g_pvm_src)
-	clang $(g_pvm_cflags) -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
+	clang $(g_pvm_cflags) -I src/impl/insp-vm -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
 	llvm-objcopy -O binary -j .text $@.elf $@
 	rm -f $@.elf
 
