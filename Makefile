@@ -28,8 +28,8 @@ g_pvm_cflags := --target=aarch64-linux-gnu -O2 -static -nostdlib -ffreestanding 
 
 g_utils_src := $(sort $(wildcard $(CURDIR)/src/impl/utils/*.c))
 g_local_src := $(sort $(wildcard $(CURDIR)/src/impl/vmi/usr/*.c))
-g_pvm_src := $(CURDIR)/src/impl/insp-vm/pvm.c
-g_bridge_src := $(filter-out $(g_pvm_src),$(sort $(wildcard $(CURDIR)/src/impl/insp-vm/*.c)))
+g_pvm_src := $(CURDIR)/src/impl/insp-vm/pvm/pvm.c
+g_bridge_src := $(sort $(wildcard $(CURDIR)/src/impl/insp-vm/vmm/*.c $(CURDIR)/src/impl/insp-vm/utils/*.c))
 
 g_usr_bin_local := userspace
 g_usr_bin_bridge := insp-vmm pvm.o
@@ -48,13 +48,13 @@ module:
 userspace: $(g_local_src) $(g_utils_src) $(wildcard $(CURDIR)/src/intf/utils/*.h)
 	clang $(g_usr_cflags) -I src/intf -I src/intf/utils -o $@ $(g_usr_crt_begin) $(g_local_src) $(g_utils_src) $(g_usr_crt_end)
 
-insp-vmm: $(g_bridge_src) $(g_utils_src) $(wildcard $(CURDIR)/src/intf/insp-vm/*.h $(CURDIR)/src/intf/utils/*.h)
-	clang $(g_usr_cflags) -I src/intf -I src/intf/insp-vm -I src/intf/utils -o $@ $(g_usr_crt_begin) $(g_bridge_src) $(g_utils_src) $(g_usr_crt_end)
+insp-vmm: $(g_bridge_src) $(g_utils_src) $(wildcard $(CURDIR)/src/intf/insp-vm/vmm/*.h $(CURDIR)/src/intf/insp-vm/utils/*.h $(CURDIR)/src/intf/utils/*.h)
+	clang $(g_usr_cflags) -I src/intf -I src/intf/insp-vm/vmm -I src/intf/insp-vm/utils -I src/intf/utils -o $@ $(g_usr_crt_begin) $(g_bridge_src) $(g_utils_src) $(g_usr_crt_end)
 
 # pvm.o is a flat binary, not an ELF: insp-vmm copies it byte for byte to guest
 # address 0, so the first instruction has to be the first byte of the file
 pvm.o: $(g_pvm_src)
-	clang $(g_pvm_cflags) -I src/impl/insp-vm -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
+	clang $(g_pvm_cflags) -I src/impl/insp-vm/pvm -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,0 -Wl,--build-id=none -o $@.elf $<
 	llvm-objcopy -O binary -j .text $@.elf $@
 	rm -f $@.elf
 

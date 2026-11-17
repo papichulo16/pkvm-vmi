@@ -1,5 +1,10 @@
 __asm__(".include \"pvm_asm.inc\"\n");
 
+
+#define GICD_BASE  0x08000000UL
+#define GICR_BASE  0x080A0000UL
+#define BRIDGE_BASE 0x67000000UL
+
 static void arm64_disable_dcache(void) {
     unsigned long sctlr;
 
@@ -47,7 +52,7 @@ static void __attribute__((noreturn)) idle() {
 
 void __attribute__((noreturn, used)) boot_start() {
 
-  static volatile int* mmio = (int *) 0x67000000;
+  static volatile int* mmio = (int *) BRIDGE_BASE;
   int val;
 
   arm64_disable_dcache();
